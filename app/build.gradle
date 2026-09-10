@@ -28,5 +28,8 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.cardview:cardview:1.0.0'
-    implementation 'com.github.kellinwood.zipsigner:zipsigner-lib:master-SNAPSHOT'
+    implementation 'io.github.Rosemoe.sora-editor:editor:0.23.4'
+    implementation 'com.github.topjohnwu:libsu:3.1.2'
+    implementation 'com.github.anggrayudi:storage:1.5.5'
+    implementation 'io.github.rarnu:zipsigner:1.0.1'
 }
