@@ -18,7 +18,7 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
-import net.kellinwood.security.zipsigner.ZipSigner;
+import kellinwood.security.zipsigner.ZipSigner;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -248,10 +248,5 @@ public class MainActivity extends Activity {
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }
-}
-```[span_1](start_span)[span_1](end_span)
-
-* Neeche **Commit changes** kar dein.
-
-Isko save kar lein, phir aakhir me Gradle wrapper ki zaroorat check karte hain!
-      
+            }
+                
