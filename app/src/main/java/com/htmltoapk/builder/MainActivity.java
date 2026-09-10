@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.View;
@@ -17,8 +16,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
-
-import kellinwood.security.zipsigner.ZipSigner;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -146,11 +143,11 @@ public class MainActivity extends Activity {
         setBuilding(true);
         new Thread(() -> {
             try {
-                File signedApk = buildSignedApk(appName, packageName);
+                File outputApk = buildApk(appName, packageName);
                 runOnUiThread(() -> {
                     setBuilding(false);
                     toast("Build complete — opening installer…");
-                    launchInstaller(signedApk);
+                    launchInstaller(outputApk);
                 });
             } catch (Exception e) {
                 e.printStackTrace();
@@ -168,24 +165,22 @@ public class MainActivity extends Activity {
         tvStatus.setText(building ? "Packaging your APK…" : "");
     }
 
-    private File buildSignedApk(String appName, String packageName) throws Exception {
+    private File buildApk(String appName, String packageName) throws Exception {
         File workDir = new File(getExternalFilesDir(null), "build");
         if (!workDir.exists()) workDir.mkdirs();
 
         File templateCopy = new File(workDir, "template_copy.apk");
-        File injectedApk = new File(workDir, "unsigned_injected.apk");
-        File signedApk = new File(workDir, safeFileName(appName) + "-signed.apk");
+        File outputApk = new File(workDir, safeFileName(appName) + ".apk");
 
         copyAssetToFile(TEMPLATE_ASSET_NAME, templateCopy);
 
         try (ZipInputStream zin = new ZipInputStream(new FileInputStream(templateCopy));
-             ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(injectedApk))) {
+             ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(outputApk))) {
 
             ZipEntry entry;
             byte[] buffer = new byte[8192];
             while ((entry = zin.getNextEntry()) != null) {
                 String name = entry.getName();
-                if (name.startsWith("META-INF/")) continue;
                 if (name.equals(HTML_ENTRY_PATH)) continue;
                 if (name.equals(ICON_ENTRY_PATH)) continue;
                 if (name.equals(SPLASH_ENTRY_PATH)) continue;
@@ -198,15 +193,11 @@ public class MainActivity extends Activity {
             zin.close();
 
             writeUriIntoZip(zout, HTML_ENTRY_PATH, htmlUri);
-
             if (iconUri != null) writeUriIntoZip(zout, ICON_ENTRY_PATH, iconUri);
             if (splashUri != null) writeUriIntoZip(zout, SPLASH_ENTRY_PATH, splashUri);
         }
 
-        ZipSigner zipSigner = new ZipSigner();
-        zipSigner.signZip(injectedApk.getAbsolutePath(), signedApk.getAbsolutePath(), "testkey");
-
-        return signedApk;
+        return outputApk;
     }
 
     private void writeUriIntoZip(ZipOutputStream zout, String entryPath, Uri sourceUri) throws Exception {
@@ -248,5 +239,5 @@ public class MainActivity extends Activity {
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }
-            }
-                
+                                                       }
+            
