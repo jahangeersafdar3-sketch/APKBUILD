@@ -1,4 +1,4 @@
-        package com.htmltoapk.builder;
+package com.htmltoapk.builder;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -17,7 +17,9 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
-import java.io.ByteArrayOutputStream;
+import com.android.apksig.ApkSigner;
+
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -25,15 +27,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.MessageDigest;
-import java.security.PrivateKey;
-import java.security.Signature;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.jar.Attributes;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
-import java.util.jar.Manifest;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.Collections;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -187,7 +183,6 @@ public class MainActivity extends Activity {
 
         copyAssetToFile(TEMPLATE_ASSET_NAME, templateCopy);
 
-        // 1. Purani META-INF strip karke new HTML & images inject karein
         try (ZipInputStream zin = new ZipInputStream(new FileInputStream(templateCopy));
              ZipOutputStream zout = new ZipOutputStream(new FileOutputStream(unsignedApk))) {
 
@@ -200,8 +195,7 @@ public class MainActivity extends Activity {
                 if (name.equals(ICON_ENTRY_PATH)) continue;
                 if (name.equals(SPLASH_ENTRY_PATH)) continue;
 
-                ZipEntry newEntry = new ZipEntry(name);
-                zout.putNextEntry(newEntry);
+                zout.putNextEntry(new ZipEntry(name));
                 int len;
                 while ((len = zin.read(buffer)) > 0) zout.write(buffer, 0, len);
                 zout.closeEntry();
@@ -213,8 +207,7 @@ public class MainActivity extends Activity {
             if (splashUri != null) writeUriIntoZip(zout, SPLASH_ENTRY_PATH, splashUri);
         }
 
-        // 2. APK ko properly sign karein
-        signJarApk(unsignedApk, signedApk);
+        signWithApkSig(unsignedApk, signedApk);
 
         return signedApk;
     }
@@ -238,89 +231,37 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Built-in Pure Java APK Signer
-    private void signJarApk(File unsignedApk, File signedApk) throws Exception {
-        Manifest manifest = new Manifest();
-        Attributes mainAttrs = manifest.getMainAttributes();
-        mainAttrs.put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        mainAttrs.put(new Attributes.Name("Created-By"), "1.0 (Android APK Builder)");
+    private void signWithApkSig(File inputApk, File outputApk) throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        KeyPair keyPair = kpg.generateKeyPair();
 
-        MessageDigest md = MessageDigest.getInstance("SHA-256");
-        Map<String, byte[]> fileEntries = new HashMap<>();
+        String certPem = "-----BEGIN CERTIFICATE-----\n" +
+                "MIICpDCCAYwCCQDU+pQ2Sm1e7zANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls\n" +
+                "b2NhbGhvc3QwHhcNMjQwMTAxMDAwMDAwWhcNMzQwMTAxMDAwMDAwWjAUMRIwEAYD\n" +
+                "VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7\n" +
+                "gG1XF3n5c6Zz6+w8b1j4t9t3i5v2q7l9o7e6r2e8w5b8o7m1a9p3j7s5e3t1r9v5\n" +
+                "AQABMA0GCSqGSIb3DQEBCwUAA4IBAQA7g6p2r1e9w5b8o7m1a9p3j7s5e3t1r9v5\n" +
+                "-----END CERTIFICATE-----";
 
-        try (ZipInputStream zin = new ZipInputStream(new FileInputStream(unsignedApk))) {
-            ZipEntry entry;
-            byte[] buffer = new byte[8192];
-            while ((entry = zin.getNextEntry()) != null) {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                int len;
-                while ((len = zin.read(buffer)) > 0) baos.write(buffer, 0, len);
-                byte[] data = baos.toByteArray();
-                fileEntries.put(entry.getName(), data);
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate cert = (X509Certificate) cf.generateCertificate(
+                new ByteArrayInputStream(certPem.getBytes()));
 
-                md.reset();
-                byte[] digest = md.digest(data);
-                String digestBase64 = android.util.Base64.encodeToString(digest, android.util.Base64.NO_WRAP);
+        ApkSigner.SignerConfig signerConfig = new ApkSigner.SignerConfig.Builder(
+                "CERT",
+                keyPair.getPrivate(),
+                Collections.singletonList(cert)
+        ).build();
 
-                Attributes entryAttrs = new Attributes();
-                entryAttrs.put(new Attributes.Name("SHA-256-Digest"), digestBase64);
-                manifest.getEntries().put(entry.getName(), entryAttrs);
-            }
-        }
+        ApkSigner.Builder builder = new ApkSigner.Builder(Collections.singletonList(signerConfig))
+                .setInputApk(inputApk)
+                .setOutputApk(outputApk)
+                .setV1SigningEnabled(true)
+                .setV2SigningEnabled(true)
+                .setOtherSignersSignaturesPreserved(false);
 
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
-        keyGen.initialize(2048);
-        KeyPair pair = keyGen.generateKeyPair();
-        PrivateKey privKey = pair.getPrivate();
-
-        try (JarOutputStream jout = new JarOutputStream(new FileOutputStream(signedApk), manifest)) {
-            byte[] manifestBytes;
-            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                manifest.write(baos);
-                manifestBytes = baos.toByteArray();
-            }
-
-            // META-INF/CERT.SF
-            Manifest sf = new Manifest();
-            Attributes sfMain = sf.getMainAttributes();
-            sfMain.put(Attributes.Name.MANIFEST_VERSION, "1.0");
-            sfMain.put(new Attributes.Name("Created-By"), "1.0 (Android APK Builder)");
-            md.reset();
-            sfMain.put(new Attributes.Name("SHA-256-Digest-Manifest"),
-                    android.util.Base64.encodeToString(md.digest(manifestBytes), android.util.Base64.NO_WRAP));
-
-            for (Map.Entry<String, Attributes> e : manifest.getEntries().entrySet()) {
-                sf.getEntries().put(e.getKey(), e.getValue());
-            }
-
-            ByteArrayOutputStream sfBaos = new ByteArrayOutputStream();
-            sf.write(sfBaos);
-            byte[] sfBytes = sfBaos.toByteArray();
-
-            JarEntry sfEntry = new JarEntry("META-INF/CERT.SF");
-            jout.putNextEntry(sfEntry);
-            jout.write(sfBytes);
-            jout.closeEntry();
-
-            // META-INF/CERT.RSA
-            Signature sig = Signature.getInstance("SHA256withRSA");
-            sig.initSign(privKey);
-            sig.update(sfBytes);
-            byte[] signature = sig.sign();
-
-            JarEntry rsaEntry = new JarEntry("META-INF/CERT.RSA");
-            jout.putNextEntry(rsaEntry);
-            jout.write(signature);
-            jout.closeEntry();
-
-            // Copy all content files
-            for (Map.Entry<String, byte[]> entry : fileEntries.entrySet()) {
-                JarEntry je = new JarEntry(entry.getKey());
-                jout.putNextEntry(je);
-                jout.write(entry.getValue());
-                jout.closeEntry();
-            }
-        }
+        builder.build().sign();
     }
 
     private void launchInstaller(File apkFile) {
@@ -343,5 +284,5 @@ public class MainActivity extends Activity {
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }
-            }
-            
+        }
+                    
