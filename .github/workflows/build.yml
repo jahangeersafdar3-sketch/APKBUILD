@@ -23,6 +23,101 @@ jobs:
       with:
         gradle-version: '8.2'
 
+    - name: Auto-generate template.apk
+      run: |
+        echo "Building clean WebView template APK..."
+        mkdir -p /tmp/template_src/src/com/template/webview
+        mkdir -p /tmp/template_src/res/values
+        mkdir -p /tmp/template_src/res/mipmap-xxhdpi
+        mkdir -p /tmp/template_src/assets
+        mkdir -p app/src/main/assets
+
+        # 1. AndroidManifest
+        cat << 'EOF' > /tmp/template_src/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.template.webview">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <application
+                android:label="Template"
+                android:icon="@mipmap/ic_launcher"
+                android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                <activity android:name=".MainActivity" android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        # 2. MainActivity.java
+        cat << 'EOF' > /tmp/template_src/src/com/template/webview/MainActivity.java
+        package com.template.webview;
+        import android.app.Activity;
+        import android.os.Bundle;
+        import android.webkit.WebSettings;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+
+        public class MainActivity extends Activity {
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                WebView web = new WebView(this);
+                setContentView(web);
+                WebSettings s = web.getSettings();
+                s.setJavaScriptEnabled(true);
+                s.setDomStorageEnabled(true);
+                s.setAllowFileAccess(true);
+                web.setWebViewClient(new WebViewClient());
+                web.loadUrl("file:///android_asset/index.html");
+            }
+        }
+        EOF
+
+        # 3. Default index.html & icon
+        echo "<html><body><h1>Loading...</h1></body></html>" > /tmp/template_src/assets/index.html
+        echo "" > /tmp/template_src/res/values/strings.xml
+        # 1x1 transparent dummy png for icon path
+        echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > /tmp/template_src/res/mipmap-xxhdpi/ic_launcher.png
+
+        # 4. Compile directly using Android SDK Build Tools
+        ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
+        BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+
+        $BUILD_TOOLS/aapt package -f -m \
+            -J /tmp/template_src/src \
+            -M /tmp/template_src/AndroidManifest.xml \
+            -S /tmp/template_src/res \
+            -A /tmp/template_src/assets \
+            -I $ANDROID_JAR
+
+        javac -d /tmp/template_src/obj \
+            -cp $ANDROID_JAR \
+            /tmp/template_src/src/com/template/webview/*.java
+
+        $BUILD_TOOLS/d8 --output /tmp/template_src/ /tmp/template_src/obj/com/template/webview/*.class
+
+        $BUILD_TOOLS/aapt package -f \
+            -M /tmp/template_src/AndroidManifest.xml \
+            -S /tmp/template_src/res \
+            -A /tmp/template_src/assets \
+            -I $ANDROID_JAR \
+            -F /tmp/template_unsigned.apk
+
+        cd /tmp/template_src && $BUILD_TOOLS/aapt add /tmp/template_unsigned.apk classes.dex
+        cd -
+
+        # Align and Sign template APK
+        $BUILD_TOOLS/zipalign -f 4 /tmp/template_unsigned.apk /tmp/template_aligned.apk
+
+        keytool -genkeypair -v -keystore /tmp/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+        $BUILD_TOOLS/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android --key-pass pass:android --out app/src/main/assets/template.apk /tmp/template_aligned.apk
+
+        echo "template.apk successfully created inside app/src/main/assets/!"
+
     - name: Build with Gradle
       run: gradle assembleDebug --stacktrace
 
