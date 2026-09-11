@@ -30,6 +30,7 @@ jobs:
         mkdir -p /tmp/template_src/res/values
         mkdir -p /tmp/template_src/res/mipmap-xxhdpi
         mkdir -p /tmp/template_src/assets
+        mkdir -p /tmp/template_src/obj
         mkdir -p app/src/main/assets
 
         # 1. AndroidManifest
@@ -39,7 +40,7 @@ jobs:
             package="com.template.webview">
             <uses-permission android:name="android.permission.INTERNET" />
             <application
-                android:label="Template"
+                android:label="@string/app_name"
                 android:icon="@mipmap/ic_launcher"
                 android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
                 <activity android:name=".MainActivity" android:exported="true">
@@ -52,7 +53,15 @@ jobs:
         </manifest>
         EOF
 
-        # 2. MainActivity.java
+        # 2. strings.xml (Valid XML element)
+        cat << 'EOF' > /tmp/template_src/res/values/strings.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <string name="app_name">Template</string>
+        </resources>
+        EOF
+
+        # 3. MainActivity.java
         cat << 'EOF' > /tmp/template_src/src/com/template/webview/MainActivity.java
         package com.template.webview;
         import android.app.Activity;
@@ -77,13 +86,11 @@ jobs:
         }
         EOF
 
-        # 3. Default index.html & icon
+        # 4. Default index.html & icon
         echo "<html><body><h1>Loading...</h1></body></html>" > /tmp/template_src/assets/index.html
-        echo "" > /tmp/template_src/res/values/strings.xml
-        # 1x1 transparent dummy png for icon path
         echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > /tmp/template_src/res/mipmap-xxhdpi/ic_launcher.png
 
-        # 4. Compile directly using Android SDK Build Tools
+        # 5. Compile directly using Android SDK Build Tools
         ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
         BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
 
@@ -110,7 +117,6 @@ jobs:
         cd /tmp/template_src && $BUILD_TOOLS/aapt add /tmp/template_unsigned.apk classes.dex
         cd -
 
-        # Align and Sign template APK
         $BUILD_TOOLS/zipalign -f 4 /tmp/template_unsigned.apk /tmp/template_aligned.apk
 
         keytool -genkeypair -v -keystore /tmp/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
